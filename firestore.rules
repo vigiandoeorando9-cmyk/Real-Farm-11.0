@@ -1,0 +1,447 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Primitive Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isNonEmptyString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidStringList(arr, maxCount) {
+      return arr is list
+        && arr.size() <= maxCount
+        && (arr.size() == 0 || (arr[0] is string && arr[0].size() <= 96));
+    }
+
+    // 3. Entity Blueprint Validation Helpers
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+          'ownerId', 'displayName', 'avatarStyle', 'activePlatform', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'displayName', 'avatarStyle', 'activePlatform', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && isNonEmptyString(data.displayName, 2, 48)
+        && data.avatarStyle in ['palha', 'bone', 'vaqueiro', 'sem']
+        && data.activePlatform in ['DESKTOP_PC', 'MOBILE', 'TABLET', 'WEB']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPrivateAccount(data, userId) {
+      return data.keys().hasAll([
+          'ownerId', 'email', 'mobileStorageLimitMb', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'email', 'preferredRegion', 'mobileStorageLimitMb', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && isNonEmptyString(data.email, 3, 160)
+        && (!('preferredRegion' in data) || isNonEmptyString(data.preferredRegion, 1, 48))
+        && (data.mobileStorageLimitMb is int || data.mobileStorageLimitMb is float)
+        && data.mobileStorageLimitMb >= 512
+        && data.mobileStorageLimitMb <= 102400
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserDevice(data, userId, deviceId) {
+      return data.keys().hasAll([
+          'ownerId', 'deviceId', 'deviceName', 'platform', 'appVersion', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'deviceId', 'deviceName', 'platform', 'graphicsPreset', 'appVersion', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && isValidId(data.deviceId)
+        && data.deviceId == deviceId
+        && isNonEmptyString(data.deviceName, 2, 64)
+        && data.platform in ['DESKTOP_PC', 'CELULAR', 'EQUILIBRADO']
+        && (!('graphicsPreset' in data) || isNonEmptyString(data.graphicsPreset, 1, 32))
+        && isNonEmptyString(data.appVersion, 1, 24)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCloudSave(data, userId) {
+      return data.keys().hasAll([
+          'ownerId', 'slotIndex', 'farmName', 'mapId', 'mapGridSize', 'startingMode',
+          'day', 'month', 'hourOfDay', 'weather', 'moneyBrl', 'bankLoanBrl',
+          'revision', 'deviceId', 'deviceName', 'checksumSha256', 'requiredModIds',
+          'payloadSizeBytes', 'compactCellsRle', 'playerMap', 'plotsList',
+          'vehiclesList', 'implementsList', 'buildingsList', 'industriesList',
+          'herdsList', 'inventoryMap', 'contractsList', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'slotIndex', 'farmName', 'mapId', 'mapGridSize', 'startingMode',
+          'day', 'month', 'hourOfDay', 'weather', 'moneyBrl', 'bankLoanBrl',
+          'revision', 'deviceId', 'deviceName', 'checksumSha256', 'requiredModIds',
+          'payloadSizeBytes', 'compactCellsRle', 'playerMap', 'plotsList',
+          'vehiclesList', 'implementsList', 'buildingsList', 'industriesList',
+          'herdsList', 'inventoryMap', 'contractsList', 'activeVehicleUid',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.slotIndex is int && data.slotIndex >= 0 && data.slotIndex <= 19
+        && isNonEmptyString(data.farmName, 1, 64)
+        && isNonEmptyString(data.mapId, 1, 64)
+        && data.mapGridSize is int && data.mapGridSize >= 32 && data.mapGridSize <= 256
+        && isNonEmptyString(data.startingMode, 1, 48)
+        && data.day is int && data.day >= 1 && data.day <= 100000
+        && data.month is int && data.month >= 1 && data.month <= 12
+        && (data.hourOfDay is int || data.hourOfDay is float) && data.hourOfDay >= 0 && data.hourOfDay <= 24
+        && isNonEmptyString(data.weather, 1, 32)
+        && (data.moneyBrl is int || data.moneyBrl is float)
+        && (data.bankLoanBrl is int || data.bankLoanBrl is float)
+        && data.revision is int && data.revision >= 1
+        && isValidId(data.deviceId)
+        && isNonEmptyString(data.deviceName, 2, 64)
+        && isNonEmptyString(data.checksumSha256, 8, 128)
+        && isValidStringList(data.requiredModIds, 250)
+        && data.payloadSizeBytes is int && data.payloadSizeBytes >= 0 && data.payloadSizeBytes <= 950000
+        && isNonEmptyString(data.compactCellsRle, 1, 450000)
+        && data.playerMap is map
+        && data.plotsList is list && data.plotsList.size() <= 200
+        && data.vehiclesList is list && data.vehiclesList.size() <= 150
+        && data.implementsList is list && data.implementsList.size() <= 200
+        && data.buildingsList is list && data.buildingsList.size() <= 300
+        && data.industriesList is list && data.industriesList.size() <= 60
+        && data.herdsList is list && data.herdsList.size() <= 20
+        && data.inventoryMap is map
+        && data.contractsList is list && data.contractsList.size() <= 80
+        && (!('activeVehicleUid' in data) || data.activeVehicleUid == null || isNonEmptyString(data.activeVehicleUid, 1, 128))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMultiplayerRoom(data, roomCode) {
+      return data.keys().hasAll([
+          'roomCode', 'hostUid', 'hostName', 'mapId', 'gameVersion',
+          'sharedFarmMode', 'pauseOnDisconnect', 'status', 'requiredModIds',
+          'memberCount', 'maxPlayers', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'roomCode', 'hostUid', 'hostName', 'mapId', 'gameVersion',
+          'sharedFarmMode', 'pauseOnDisconnect', 'status', 'requiredModIds',
+          'memberCount', 'maxPlayers', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.roomCode)
+        && data.roomCode == roomCode
+        && data.roomCode.size() <= 32
+        && isValidId(data.hostUid)
+        && isNonEmptyString(data.hostName, 2, 48)
+        && isNonEmptyString(data.mapId, 1, 64)
+        && isNonEmptyString(data.gameVersion, 1, 24)
+        && data.sharedFarmMode is bool
+        && data.pauseOnDisconnect is bool
+        && data.status in ['WAITING', 'ACTIVE', 'CLOSED']
+        && isValidStringList(data.requiredModIds, 250)
+        && data.memberCount is int && data.memberCount >= 1 && data.memberCount <= 16
+        && data.maxPlayers is int && data.maxPlayers >= 2 && data.maxPlayers <= 16
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoomMember(data, roomCode, memberUid) {
+      return data.keys().hasAll([
+          'memberUid', 'roomCode', 'playerName', 'x', 'z', 'headingDeg',
+          'isApproved', 'role', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'memberUid', 'roomCode', 'playerName', 'x', 'z', 'vehicleDefId',
+          'headingDeg', 'pitchDeg', 'rollDeg', 'steerAngleDeg', 'wheelSpinDeg',
+          'suspensionOffsetY', 'isApproved', 'role', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.memberUid)
+        && data.memberUid == memberUid
+        && isValidId(data.roomCode)
+        && data.roomCode == roomCode
+        && isNonEmptyString(data.playerName, 2, 48)
+        && (data.x is int || data.x is float)
+        && (data.z is int || data.z is float)
+        && (!('vehicleDefId' in data) || data.vehicleDefId == null || isNonEmptyString(data.vehicleDefId, 1, 64))
+        && (data.headingDeg is int || data.headingDeg is float)
+        && (!('pitchDeg' in data) || data.pitchDeg is int || data.pitchDeg is float)
+        && (!('rollDeg' in data) || data.rollDeg is int || data.rollDeg is float)
+        && (!('steerAngleDeg' in data) || data.steerAngleDeg is int || data.steerAngleDeg is float)
+        && (!('wheelSpinDeg' in data) || data.wheelSpinDeg is int || data.wheelSpinDeg is float)
+        && (!('suspensionOffsetY' in data) || data.suspensionOffsetY is int || data.suspensionOffsetY is float)
+        && data.isApproved is bool
+        && data.role in ['HOST', 'OPERATOR', 'GUEST']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRoomChat(data, roomCode) {
+      return data.keys().hasAll(['senderUid', 'senderName', 'roomCode', 'text', 'createdAt'])
+        && data.keys().hasOnly(['senderUid', 'senderName', 'roomCode', 'text', 'createdAt'])
+        && isValidId(data.senderUid)
+        && data.senderUid == request.auth.uid
+        && isNonEmptyString(data.senderName, 2, 48)
+        && isValidId(data.roomCode)
+        && data.roomCode == roomCode
+        && isNonEmptyString(data.text, 1, 240)
+        && data.createdAt is timestamp;
+    }
+
+    // 4. User Profile (Public-safe display fields only)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isSignedIn();
+      allow list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt <= request.time
+        && incoming().updatedAt <= request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt <= request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'avatarStyle', 'activePlatform', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && isOwner(userId);
+
+      // Owner-Only Private PII Account
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && isOwner(userId);
+        allow list: if isOwner(userId);
+
+        allow create: if isSignedIn()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isOwner(userId)
+          && isValidPrivateAccount(incoming(), userId)
+          && incoming().createdAt <= request.time
+          && incoming().updatedAt <= request.time;
+
+        allow update: if isSignedIn()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isOwner(userId)
+          && isValidPrivateAccount(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt <= request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'preferredRegion', 'mobileStorageLimitMb', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(docId) && isOwner(userId);
+      }
+
+      // Owner-Only Registered Devices
+      match /devices/{deviceId} {
+        allow get: if isValidId(userId) && isValidId(deviceId) && isOwner(userId);
+        allow list: if isOwner(userId);
+
+        allow create: if isSignedIn()
+          && isValidId(userId)
+          && isValidId(deviceId)
+          && isOwner(userId)
+          && isValidUserDevice(incoming(), userId, deviceId)
+          && incoming().createdAt <= request.time
+          && incoming().updatedAt <= request.time;
+
+        allow update: if isSignedIn()
+          && isValidId(userId)
+          && isValidId(deviceId)
+          && isOwner(userId)
+          && isValidUserDevice(incoming(), userId, deviceId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().deviceId == existing().deviceId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt <= request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['deviceName', 'platform', 'graphicsPreset', 'appVersion', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(deviceId) && isOwner(userId);
+      }
+
+      // Owner-Only Cross-Device Cloud Saves
+      match /cloudSaves/{slotId} {
+        allow get: if isValidId(userId) && isValidId(slotId) && isOwner(userId);
+        allow list: if isOwner(userId);
+
+        allow create: if isSignedIn()
+          && isValidId(userId)
+          && isValidId(slotId)
+          && isOwner(userId)
+          && isValidCloudSave(incoming(), userId)
+          && incoming().createdAt <= request.time
+          && incoming().updatedAt <= request.time;
+
+        allow update: if isSignedIn()
+          && isValidId(userId)
+          && isValidId(slotId)
+          && isOwner(userId)
+          && isValidCloudSave(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().slotIndex == existing().slotIndex
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt <= request.time
+          && incoming().revision >= existing().revision
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'farmName', 'mapId', 'mapGridSize', 'startingMode',
+            'day', 'month', 'hourOfDay', 'weather', 'moneyBrl', 'bankLoanBrl',
+            'revision', 'deviceId', 'deviceName', 'checksumSha256', 'requiredModIds',
+            'payloadSizeBytes', 'compactCellsRle', 'playerMap', 'plotsList',
+            'vehiclesList', 'implementsList', 'buildingsList', 'industriesList',
+            'herdsList', 'inventoryMap', 'contractsList', 'activeVehicleUid', 'updatedAt'
+          ]);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(slotId) && isOwner(userId);
+      }
+    }
+
+    // 5. Online Multiplayer Rooms
+    match /mpRooms/{roomCode} {
+      allow get: if isValidId(roomCode) && isSignedIn();
+      allow list: if isSignedIn() && existing().status != 'CLOSED';
+
+      allow create: if isSignedIn()
+        && isValidId(roomCode)
+        && isValidMultiplayerRoom(incoming(), roomCode)
+        && incoming().hostUid == request.auth.uid
+        && incoming().status == 'WAITING'
+        && incoming().createdAt <= request.time
+        && incoming().updatedAt <= request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(roomCode)
+        && existing().status != 'CLOSED'
+        && isValidMultiplayerRoom(incoming(), roomCode)
+        && incoming().roomCode == existing().roomCode
+        && incoming().hostUid == existing().hostUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt <= request.time
+        && (
+          (existing().hostUid == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'hostName', 'sharedFarmMode', 'pauseOnDisconnect', 'status', 'requiredModIds', 'memberCount', 'updatedAt'
+            ]))
+          ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['memberCount', 'updatedAt'])
+            && incoming().memberCount >= 1
+            && incoming().memberCount <= existing().maxPlayers)
+        );
+
+      allow delete: if isSignedIn()
+        && isValidId(roomCode)
+        && existing().hostUid == request.auth.uid;
+
+      match /members/{memberUid} {
+        allow get: if isValidId(roomCode) && isValidId(memberUid) && isSignedIn()
+          && exists(/databases/$(database)/documents/mpRooms/$(roomCode));
+        allow list: if isSignedIn()
+          && existing().roomCode == roomCode;
+
+        allow create: if isSignedIn()
+          && isValidId(roomCode)
+          && isValidId(memberUid)
+          && request.auth.uid == memberUid
+          && isValidRoomMember(incoming(), roomCode, memberUid)
+          && incoming().createdAt <= request.time
+          && incoming().updatedAt <= request.time
+          && exists(/databases/$(database)/documents/mpRooms/$(roomCode))
+          && get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.status != 'CLOSED'
+          && (
+            (get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.hostUid == request.auth.uid
+              && incoming().role == 'HOST'
+              && incoming().isApproved == true)
+            ||
+            (get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.hostUid != request.auth.uid
+              && incoming().role == 'GUEST'
+              && incoming().isApproved == false)
+          );
+
+        allow update: if isSignedIn()
+          && isValidId(roomCode)
+          && isValidId(memberUid)
+          && isValidRoomMember(incoming(), roomCode, memberUid)
+          && incoming().memberUid == existing().memberUid
+          && incoming().roomCode == existing().roomCode
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt <= request.time
+          && exists(/databases/$(database)/documents/mpRooms/$(roomCode))
+          && get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.status != 'CLOSED'
+          && (
+            (get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.hostUid == request.auth.uid
+              && incoming().diff(existing()).affectedKeys().hasOnly(['isApproved', 'role', 'updatedAt']))
+            ||
+            (request.auth.uid == memberUid
+              && existing().isApproved == true
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'playerName', 'x', 'z', 'vehicleDefId', 'headingDeg',
+                'pitchDeg', 'rollDeg', 'steerAngleDeg', 'wheelSpinDeg',
+                'suspensionOffsetY', 'updatedAt'
+              ]))
+          );
+
+        allow delete: if isSignedIn()
+          && isValidId(roomCode)
+          && isValidId(memberUid)
+          && (request.auth.uid == memberUid
+            || get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.hostUid == request.auth.uid);
+      }
+
+      match /messages/{messageId} {
+        allow get: if isValidId(roomCode) && isValidId(messageId) && isSignedIn()
+          && exists(/databases/$(database)/documents/mpRooms/$(roomCode));
+        allow list: if isSignedIn() && existing().roomCode == roomCode;
+
+        allow create: if isSignedIn()
+          && isValidId(roomCode)
+          && isValidId(messageId)
+          && isValidRoomChat(incoming(), roomCode)
+          && incoming().createdAt <= request.time
+          && exists(/databases/$(database)/documents/mpRooms/$(roomCode))
+          && get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.status != 'CLOSED';
+
+        allow update: if false;
+        allow delete: if isSignedIn()
+          && isValidId(roomCode)
+          && isValidId(messageId)
+          && (existing().senderUid == request.auth.uid
+            || get(/databases/$(database)/documents/mpRooms/$(roomCode)).data.hostUid == request.auth.uid);
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Farm Brasil",
+  "description": "Simulador agrícola brasileiro 3D completo com máquinas, culturas nacionais, pecuária, indústrias, economia e 20 regiões do Brasil.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
